@@ -324,7 +324,6 @@ impl LspServerState {
         }
 
         tracing::debug!("Processing request: method={}, id={}", req.method, req.id);
-
         self.request_router.clone().dispatch(self, req);
         Ok(())
     }
@@ -477,6 +476,11 @@ impl LspServerState {
                 handlers::text_document::handle_references,
             )
             .expect("Failed to register References handler")
+            .on_with::<lsp_types::request::HoverRequest>(
+                LspServerState::ensure_beancount_data_for_hover,
+                handlers::text_document::hover,
+            )
+            .expect("Failed to register Hover handler")
             .on_with::<lsp_types::request::SemanticTokensFullRequest>(
                 LspServerState::ensure_beancount_data_for_semantic_tokens,
                 handlers::text_document::semantic_tokens_full,
@@ -575,6 +579,10 @@ impl LspServerState {
 
     fn ensure_beancount_data_for_rename(&mut self, params: &lsp_types::RenameParams) {
         self.ensure_beancount_data_for_position(&params.text_document_position);
+    }
+
+    fn ensure_beancount_data_for_hover(&mut self, params: &lsp_types::HoverParams) {
+        self.ensure_beancount_data_for_position(&params.text_document_position_params);
     }
 
     fn ensure_beancount_data_for_semantic_tokens(
