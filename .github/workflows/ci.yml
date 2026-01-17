@@ -46,6 +46,43 @@ jobs:
       - name: Build | Lint
         run: cargo clippy --all-targets --all-features
 
+  python-wrapper-build:
+    name: Python Wrapper Build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macOS-latest, windows-latest]
+    steps:
+      - name: Setup | Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup | Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Setup | Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Setup | uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          activate-environment: "true"
+
+      - name: Install | maturin
+        run: uv tool install maturin
+
+      - name: Build | Python extension
+        run: maturin build --release -o dist
+
+      - name: Install | Python extension
+        run: uv pip install --system dist/*.whl
+        shell: bash
+
+      - name: Run | CLI help
+        run: beancount-language-server --help
+
   # Run stable Ubuntu tests (required for auto-merge)
   test-ubuntu-stable:
     name: Test Suite (Ubuntu Stable)
@@ -67,6 +104,7 @@ jobs:
           --all-features
           --locked
           --workspace
+          --exclude beancount-lsp-python
           --lcov --output-path lcov.info
           -- --include-ignored"
         env:
@@ -104,6 +142,12 @@ jobs:
       - name: Setup | Checkout
         uses: actions/checkout@v6
 
+      - name: Setup | Python (ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
 
       # Install all the required dependencies for testing
       - name: Setup | Rust
@@ -126,6 +170,7 @@ jobs:
           --all-features
           --locked
           --workspace
+          --exclude beancount-lsp-python
           --lcov --output-path lcov.info
           -- --include-ignored"
         env:
@@ -160,6 +205,7 @@ jobs:
     needs:
       - rustfmt
       - clippy
+      - python-wrapper-build
       - test-ubuntu-stable
     steps:
       - name: Check if all required jobs succeeded
