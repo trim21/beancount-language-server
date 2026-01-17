@@ -363,6 +363,16 @@ impl LspServerState {
                 .to_file_path()
         {
             self.ensure_beancount_data(&path);
+        } else if req.method == lsp_types::request::HoverRequest::METHOD
+            && let Ok(params) =
+                serde_json::from_value::<lsp_types::HoverParams>(req.params.clone())
+            && let Ok(path) = params
+                .text_document_position_params
+                .text_document
+                .uri
+                .to_file_path()
+        {
+            self.ensure_beancount_data(&path);
         }
 
         RequestDispatcher::new(self, req)
@@ -375,6 +385,7 @@ impl LspServerState {
             .on::<lsp_types::request::Formatting>(handlers::text_document::formatting)?
             .on::<lsp_types::request::Rename>(handlers::text_document::handle_rename)?
             .on::<lsp_types::request::References>(handlers::text_document::handle_references)?
+            .on::<lsp_types::request::HoverRequest>(handlers::text_document::hover)?
             .on::<lsp_types::request::SemanticTokensFullRequest>(
                 handlers::text_document::semantic_tokens_full,
             )?
