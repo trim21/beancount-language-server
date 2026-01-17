@@ -10,6 +10,10 @@ on:
     paths-ignore:
       - "**.md"
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   RUSTFLAGS: "-D warnings"
 
@@ -45,43 +49,6 @@ jobs:
 
       - name: Build | Lint
         run: cargo clippy --all-targets --all-features
-
-  python-wrapper-build:
-    name: Python Wrapper Build
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macOS-latest, windows-latest]
-    steps:
-      - name: Setup | Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup | Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-
-      - name: Setup | Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-
-      - name: Setup | uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          activate-environment: "true"
-
-      - name: Install | maturin
-        run: uv tool install maturin
-
-      - name: Build | Python extension
-        run: maturin build --release -o dist
-
-      - name: Install | Python extension
-        run: uv pip install --system dist/*.whl
-        shell: bash
-
-      - name: Run | CLI help
-        run: beancount-language-server --help
 
   # Run stable Ubuntu tests (required for auto-merge)
   test-ubuntu-stable:
@@ -197,6 +164,50 @@ jobs:
           toolchain: nightly
       - run: cargo doc --all-features --no-deps --workspace
 
+  python-wrapper-build:
+    uses: ./.github/workflows/python-wrapper-build.yml
+
+  python-wheel-test:
+    name: Python Wheel Test
+    runs-on: ${{ matrix.runner }}
+    needs:
+      - python-wrapper-build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+          - runner: macos-15-intel
+          - runner: macos-15
+          - runner: ubuntu-24.04
+          - runner: ubuntu-24.04-arm
+    steps:
+      - name: Setup | Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup | Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Setup | uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          activate-environment: "true"
+
+      - name: Download | Python wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: python-wheels-*
+          path: dist
+          merge-multiple: true
+
+      - name: Install | Python extension
+        run: uv pip install --system --find-links dist beancount-language-server
+
+      - name: Run | CLI help
+        run: beancount-language-server --help
+
   # Consolidated job for required checks (used for branch protection)
   required-checks:
     name: Required Checks
@@ -206,6 +217,7 @@ jobs:
       - rustfmt
       - clippy
       - python-wrapper-build
+      - python-wheel-test
       - test-ubuntu-stable
     steps:
       - name: Check if all required jobs succeeded
@@ -216,6 +228,14 @@ jobs:
           fi
           if [[ "${{ needs.clippy.result }}" != "success" ]]; then
             echo "clippy failed"
+            exit 1
+          fi
+          if [[ "${{ needs.python-wrapper-build.result }}" != "success" ]]; then
+            echo "python-wrapper-build failed"
+            exit 1
+          fi
+          if [[ "${{ needs.python-wheel-test.result }}" != "success" ]]; then
+            echo "python-wheel-test failed"
             exit 1
           fi
           if [[ "${{ needs.test-ubuntu-stable.result }}" != "success" ]]; then
