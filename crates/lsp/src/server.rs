@@ -326,7 +326,6 @@ impl LspServerState {
         tracing::debug!("Processing request: method={}, id={}", req.method, req.id);
 
         self.request_router.clone().dispatch(self, req);
-
         Ok(())
     }
 
@@ -463,6 +462,11 @@ impl LspServerState {
             .expect("Failed to register Completion handler")
             .on::<lsp_types::request::Formatting>(handlers::text_document::formatting)
             .expect("Failed to register Formatting handler")
+            .on_with::<lsp_types::request::GotoDefinition>(
+                LspServerState::ensure_beancount_data_for_definition,
+                handlers::text_document::handle_definition,
+            )
+            .expect("Failed to register GotoDefinition handler")
             .on_with::<lsp_types::request::Rename>(
                 LspServerState::ensure_beancount_data_for_rename,
                 handlers::text_document::handle_rename,
@@ -559,6 +563,10 @@ impl LspServerState {
 
     fn ensure_beancount_data_for_completion(&mut self, params: &lsp_types::CompletionParams) {
         self.ensure_beancount_data_for_position(&params.text_document_position);
+    }
+
+    fn ensure_beancount_data_for_definition(&mut self, params: &lsp_types::GotoDefinitionParams) {
+        self.ensure_beancount_data_for_position(&params.text_document_position_params);
     }
 
     fn ensure_beancount_data_for_references(&mut self, params: &lsp_types::ReferenceParams) {
