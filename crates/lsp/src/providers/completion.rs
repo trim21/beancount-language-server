@@ -485,8 +485,8 @@ fn analyze_string_context(content: &ropey::Rope, cursor: Point) -> CompletionCon
     let line = content.line(cursor.row).to_string();
     let prefix = extract_string_prefix(&line, cursor.column);
 
-    // Count quotes before cursor to determine context
-    let before_cursor = &line[..cursor.column.min(line.len())];
+    // Count quotes before cursor to determine context; guard against non-ASCII boundaries
+    let before_cursor = prefix_up_to_byte(&line, cursor.column);
     let quote_count = before_cursor.matches('"').count();
 
     // Check if we have a complete payee (2+ quotes before, suggesting this is narration)
@@ -549,8 +549,16 @@ fn extract_string_prefix(line: &str, cursor_col: usize) -> String {
     chars[start..end].iter().collect()
 }
 
+fn prefix_up_to_byte(line: &str, byte_idx: usize) -> String {
+    line
+        .char_indices()
+        .take_while(|(i, _)| *i < byte_idx)
+        .map(|(_, ch)| ch)
+        .collect()
+}
+
 fn extract_tag_prefix(line: &str, cursor_col: usize) -> Option<String> {
-    let relevant_part = &line[..cursor_col];
+    let relevant_part = prefix_up_to_byte(line, cursor_col);
     if let Some(hash_pos) = relevant_part.rfind('#') {
         // Ensure we are not in a comment
         if let Some(comment_pos) = relevant_part.find(';')
@@ -569,7 +577,7 @@ fn extract_tag_prefix(line: &str, cursor_col: usize) -> Option<String> {
 }
 
 fn extract_link_prefix(line: &str, cursor_col: usize) -> Option<String> {
-    let relevant_part = &line[..cursor_col];
+    let relevant_part = prefix_up_to_byte(line, cursor_col);
     if let Some(hash_pos) = relevant_part.rfind('^') {
         // Ensure we are not in a comment
         if let Some(comment_pos) = relevant_part.find(';')
@@ -764,7 +772,8 @@ fn complete_account(
     let mut all_accounts: Vec<String> = Vec::new();
 
     for bean_data in data.values() {
-        all_accounts.extend(bean_data.get_accounts().iter().cloned());
+        let accounts = bean_data.get_accounts();
+        all_accounts.extend(accounts.iter().cloned());
     }
 
     // Remove duplicates
@@ -803,7 +812,8 @@ fn complete_subaccounts(
     let mut subaccounts: Vec<String> = Vec::new();
 
     for bean_data in data.values() {
-        for account in bean_data.get_accounts().iter() {
+        let accounts = bean_data.get_accounts();
+        for account in accounts.iter() {
             if let Some(suffix) = account.strip_prefix(parent_path) {
                 let suffix = suffix.strip_prefix(':').unwrap_or(suffix);
 
@@ -847,7 +857,8 @@ fn complete_currency(
     // Collect commodities from all beancount files
     let mut commodities_set: HashSet<String> = HashSet::new();
     for bean_data in data.values() {
-        for commodity in bean_data.get_commodities().iter() {
+        let commodities = bean_data.get_commodities();
+        for commodity in commodities.iter() {
             commodities_set.insert(commodity.clone());
         }
     }
@@ -901,7 +912,8 @@ fn complete_payee(
     let mut payees: Vec<String> = Vec::new();
 
     for bean_data in data.values() {
-        for payee in bean_data.get_payees().iter() {
+        let payee_list = bean_data.get_payees();
+        for payee in payee_list.iter() {
             let clean = payee.trim_matches('"');
             if !clean.is_empty() {
                 payees.push(clean.to_string());
@@ -951,7 +963,8 @@ fn complete_narration(
     let mut narrations: Vec<String> = Vec::new();
 
     for bean_data in data.values() {
-        for narration in bean_data.get_narration().iter() {
+        let narration_list = bean_data.get_narration();
+        for narration in narration_list.iter() {
             narrations.push(narration.trim_matches('"').to_string());
         }
     }
