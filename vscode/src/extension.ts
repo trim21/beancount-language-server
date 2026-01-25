@@ -1,10 +1,16 @@
 import * as fs from "fs";
 import * as path from "path";
+import { inspect } from "util";
 import * as vscode from "vscode";
 import {
+  CloseAction,
+  CloseHandlerResult,
+  ErrorAction,
+  ErrorHandlerResult,
   Executable,
   LanguageClient,
   LanguageClientOptions,
+  Message,
   ServerOptions,
 } from "vscode-languageclient/node";
 
@@ -38,6 +44,10 @@ async function start_or_restart_client(
   const config = vscode.workspace.getConfiguration("beancountLangServer");
 
   const serverArgs: string[] = [];
+  const logLevel = config.get<string | null>("logLevel")?.trim();
+  if (logLevel) {
+    serverArgs.push("--log-level", logLevel);
+  }
 
   const server_executable: Executable = {
     command: serverSelection.path,
@@ -75,6 +85,32 @@ async function start_or_restart_client(
       ),
     },
     initializationOptions,
+    errorHandler: {
+      error(
+        error: Error,
+        message: Message | undefined,
+        count: number | undefined,
+      ): ErrorHandlerResult {
+        log.error("client error: ", error, message, count);
+        return {
+          action: ErrorAction.Continue,
+          message: inspect(message),
+          handled: true,
+        };
+      },
+      closed(): CloseHandlerResult {
+        log.error("server stopped, restarting");
+        vscode.window.showErrorMessage(
+          "beancount-language-server stopped unexpectedly, restarting",
+        );
+
+        return {
+          action: CloseAction.Restart,
+          message: "server exit, restarting",
+          handled: true,
+        };
+      },
+    },
   };
 
   log.info(JSON.stringify(initializationOptions, null, 2));
