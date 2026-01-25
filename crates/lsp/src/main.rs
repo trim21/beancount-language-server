@@ -10,7 +10,9 @@ fn main() {
     let matches = Command::new("beancount-language-server")
         .args(&[
             arg!(--stdio "specifies to use stdio to communicate with lsp"),
-            arg!(--log [LOG_LEVEL] "write log to file with optional level (trace, debug, info, warn, error)"),
+            arg!(--log [LOG_LEVEL] "write log to default file beancount-language-server.log with optional level (deprecated, use --log-file and --log-level)"),
+            arg!(--"log-file" <LOG_FILE> "write log output to the specified file instead of stderr"),
+            arg!(--"log-level" [LOG_LEVEL] "set log level (trace, debug, info, warn, error, off); defaults to info"),
             arg!(version: -v --version),
         ])
         .get_matches();
@@ -20,9 +22,19 @@ fn main() {
         return;
     }
 
-    let log_to_file = matches.contains_id("log");
-    let log_level = matches.get_one::<String>("log");
-    setup_logging(log_to_file, log_level);
+    let log_file = matches.get_one::<String>("log-file").cloned().or_else(|| {
+        if matches.contains_id("log") {
+            Some("beancount-language-server.log".to_owned())
+        } else {
+            None
+        }
+    });
+
+    let log_level = matches
+        .get_one::<String>("log-level")
+        .or_else(|| matches.get_one::<String>("log"));
+
+    setup_logging(log_file.as_deref(), log_level);
 
     tracing::info!(
         "Starting beancount-language-server v{}",
@@ -31,7 +43,7 @@ fn main() {
     tracing::debug!(
         "Command line args: stdio={}, log_to_file={}, log_level={:?}",
         matches.get_flag("stdio"),
-        log_to_file,
+        log_file.unwrap_or("stderr".to_string()),
         log_level
     );
 
@@ -46,35 +58,24 @@ fn main() {
     }
 }
 
-fn setup_logging(log_to_file: bool, log_level_arg: Option<&String>) {
+fn setup_logging(log_file: Option<&str>, log_level_arg: Option<&String>) {
     let level = match log_level_arg {
         Some(level_str) => parse_log_level(level_str),
-        None => {
-            if log_to_file {
-                LevelFilter::DEBUG // Default level when logging to file
-            } else {
-                LevelFilter::INFO // Default level when logging to stderr
-            }
-        }
+        None => LevelFilter::INFO, // Default level when not specified
     };
 
-    let file = if log_to_file {
-        match fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("beancount-language-server.log")
-        {
+    let file = match log_file {
+        Some(path) => match fs::OpenOptions::new().create(true).append(true).open(path) {
             Ok(f) => {
-                eprintln!("Logging to file: beancount-language-server.log");
+                eprintln!("Logging to file: {path}");
                 Some(f)
             }
             Err(e) => {
-                eprintln!("Failed to open log file: {e}. Falling back to stderr.");
+                eprintln!("Failed to open log file '{path}': {e}. Falling back to stderr.");
                 None
             }
-        }
-    } else {
-        None
+        },
+        None => None,
     };
 
     let writer = match file {
